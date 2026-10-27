@@ -28,7 +28,8 @@ def intervals(path, duration):
     return keep
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('clips',nargs='+'); ap.add_argument('-o','--output',required=True); ap.add_argument('--remove-silence',action='store_true'); ap.add_argument('--music'); args=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument('clips',nargs='+'); ap.add_argument('-o','--output',required=True); ap.add_argument('--remove-silence',action='store_true'); ap.add_argument('--music'); ap.add_argument('--format', choices=('portrait','landscape','square'),default='portrait'); args=ap.parse_args()
+    width,height={'portrait':(720,1280),'landscape':(1280,720),'square':(720,720)}[args.format]
     output=pathlib.Path(args.output).resolve()
     inputs=[pathlib.Path(p).resolve() for p in args.clips]
     if output in inputs: ap.error('Output must differ from input files')
@@ -44,7 +45,7 @@ def main():
                 dest=pathlib.Path(tmp)/f'{i:04d}-{j:04d}.mp4'
                 cmd=['ffmpeg','-y','-v','error','-ss',str(start),'-i',str(path)]
                 if not audio: cmd+=['-f','lavfi','-i','anullsrc=channel_layout=stereo:sample_rate=48000']
-                cmd+=['-t',str(end-start),'-map','0:v:0','-map','0:a:0' if audio else '1:a:0','-vf','scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=25','-c:v','libx264','-preset','veryfast','-pix_fmt','yuv420p','-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',str(dest)]
+                cmd+=['-t',str(end-start),'-map','0:v:0','-map','0:a:0' if audio else '1:a:0','-vf',f'scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=25','-c:v','libx264','-preset','veryfast','-pix_fmt','yuv420p','-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',str(dest)]
                 run(cmd); parts.append(dest)
         manifest=pathlib.Path(tmp)/'list.txt'; manifest.write_text(''.join(f"file '{p}'\n" for p in parts))
         assembled=pathlib.Path(tmp)/'assembled.mp4'
