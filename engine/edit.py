@@ -17,6 +17,9 @@ def intervals(path, duration):
         elif start is not None:
             silence.append((start,t)); start=None
     if start is not None: silence.append((start,duration))
+    # A completely silent clip may contain important visuals: preserve it intact.
+    if len(silence)==1 and silence[0][0] <= 0.05 and silence[0][1] >= duration-0.05:
+        return [(0.0, duration)]
     # Keep 200 ms of each pause on either side of speech.
     keep=[]; pos=0.0
     for a,b in silence:
