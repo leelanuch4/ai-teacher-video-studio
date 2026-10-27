@@ -28,7 +28,7 @@ def intervals(path, duration):
     return keep
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('clips',nargs='+'); ap.add_argument('-o','--output',required=True); ap.add_argument('--remove-silence',action='store_true'); args=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument('clips',nargs='+'); ap.add_argument('-o','--output',required=True); ap.add_argument('--remove-silence',action='store_true'); ap.add_argument('--music'); args=ap.parse_args()
     output=pathlib.Path(args.output).resolve()
     inputs=[pathlib.Path(p).resolve() for p in args.clips]
     if output in inputs: ap.error('Output must differ from input files')
@@ -47,6 +47,11 @@ def main():
                 cmd+=['-t',str(end-start),'-map','0:v:0','-map','0:a:0' if audio else '1:a:0','-vf','scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=25','-c:v','libx264','-preset','veryfast','-pix_fmt','yuv420p','-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',str(dest)]
                 run(cmd); parts.append(dest)
         manifest=pathlib.Path(tmp)/'list.txt'; manifest.write_text(''.join(f"file '{p}'\n" for p in parts))
-        run(['ffmpeg','-y','-v','error','-f','concat','-safe','0','-i',str(manifest),'-c','copy','-movflags','+faststart',str(output)])
+        assembled=pathlib.Path(tmp)/'assembled.mp4'
+        run(['ffmpeg','-y','-v','error','-f','concat','-safe','0','-i',str(manifest),'-c','copy','-movflags','+faststart',str(assembled)])
+        if args.music:
+            run(['ffmpeg','-y','-v','error','-i',str(assembled),'-stream_loop','-1','-i',args.music,'-filter_complex','[1:a]volume=0.12[m];[0:a][m]amix=inputs=2:duration=first:normalize=0[a]','-map','0:v:0','-map','[a]','-c:v','copy','-c:a','aac','-movflags','+faststart',str(output)])
+        else:
+            import shutil; shutil.copyfile(assembled,output)
     print(output)
 if __name__=='__main__': main()
