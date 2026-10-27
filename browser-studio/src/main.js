@@ -34,7 +34,7 @@ $('#run').addEventListener('click',async()=>{
   if(working)return;
   const music=$('#music').files[0];
   if(!clips.length){$('#status').textContent='กรุณาเลือกคลิปก่อน';return;}
-  if(clips.length>5 || clips.reduce((n,c)=>n+c.file.size,0)+(music?.size||0)>100_000_000){$('#status').textContent='รุ่นทดลองรองรับไม่เกิน 5 คลิป รวมเพลงไม่เกิน 100 MB';return;}
+  if(clips.length>5 || clips.reduce((n,c)=>n+c.file.size,0)+(music?.size||0)>100_000_000){const count=clips.length, mb=(clips.reduce((n,c)=>n+c.file.size,0)+(music?.size||0))/1_000_000; $('#status').textContent=`เลือกไว้ ${count} คลิป ขนาดรวม ${mb.toFixed(1)} MB — ${count>5?'กรุณาลดเหลือไม่เกิน 5 คลิป ':''}${mb>100?'กรุณาลดขนาดรวมให้ไม่เกิน 100 MB':''} แล้วกดรวมคลิปอีกครั้ง`;return;}
   working=true; $('#run').disabled=true;$('#files').disabled=true;draw();$('#result').replaceChildren();if(outputUrl){URL.revokeObjectURL(outputUrl);outputUrl=null;}
   const cleanup=[];
   try{
