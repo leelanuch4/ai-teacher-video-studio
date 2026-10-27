@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Experimental FFmpeg video assembly; processes local files, not a web service."""
 import argparse, json, pathlib, re, subprocess, tempfile
+from subtitles import transcribe
 
 def run(args):
     return subprocess.run(args, check=True, capture_output=True, text=True)
@@ -31,7 +32,7 @@ def intervals(path, duration):
     return keep
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('clips',nargs='+'); ap.add_argument('-o','--output',required=True); ap.add_argument('--remove-silence',action='store_true'); ap.add_argument('--music'); ap.add_argument('--format', choices=('portrait','landscape','square'),default='portrait'); args=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument('clips',nargs='+'); ap.add_argument('-o','--output',required=True); ap.add_argument('--remove-silence',action='store_true'); ap.add_argument('--music'); ap.add_argument('--auto-subtitles',action='store_true',help='Experimental Thai timed subtitles; requires an API key'); ap.add_argument('--format', choices=('portrait','landscape','square'),default='portrait'); args=ap.parse_args()
     width,height={'portrait':(720,1280),'landscape':(1280,720),'square':(720,720)}[args.format]
     output=pathlib.Path(args.output).resolve()
     inputs=[pathlib.Path(p).resolve() for p in args.clips]
@@ -53,9 +54,17 @@ def main():
         manifest=pathlib.Path(tmp)/'list.txt'; manifest.write_text(''.join(f"file '{p}'\n" for p in parts))
         assembled=pathlib.Path(tmp)/'assembled.mp4'
         run(['ffmpeg','-y','-v','error','-f','concat','-safe','0','-i',str(manifest),'-c','copy','-movflags','+faststart',str(assembled)])
+        # Transcribe speech before music is mixed, so captions follow the edited timeline.
+        srt=pathlib.Path(tmp)/'captions.srt'
+        if args.auto_subtitles: transcribe(assembled,srt)
+        mixed=pathlib.Path(tmp)/'mixed.mp4'
         if args.music:
-            run(['ffmpeg','-y','-v','error','-i',str(assembled),'-stream_loop','-1','-i',args.music,'-filter_complex','[1:a]volume=0.12[m];[0:a][m]amix=inputs=2:duration=first:normalize=0[a]','-map','0:v:0','-map','[a]','-c:v','copy','-c:a','aac','-movflags','+faststart',str(output)])
+            run(['ffmpeg','-y','-v','error','-i',str(assembled),'-stream_loop','-1','-i',args.music,'-filter_complex','[1:a]volume=0.12[m];[0:a][m]amix=inputs=2:duration=first:normalize=0[a]','-map','0:v:0','-map','[a]','-c:v','copy','-c:a','aac','-movflags','+faststart',str(mixed)])
         else:
-            import shutil; shutil.copyfile(assembled,output)
+            mixed=assembled
+        if args.auto_subtitles:
+            run(['ffmpeg','-y','-v','error','-i',str(mixed),'-i',str(srt),'-map','0:v:0','-map','0:a:0','-map','1:0','-c:v','copy','-c:a','copy','-c:s','mov_text','-metadata:s:s:0','language=tha','-disposition:s:0','default','-movflags','+faststart',str(output)])
+        else:
+            import shutil; shutil.copyfile(mixed,output)
     print(output)
 if __name__=='__main__': main()
