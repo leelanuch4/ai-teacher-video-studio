@@ -23,12 +23,13 @@ class Handler(BaseHTTPRequestHandler):
             raw=self.rfile.read(n)
             msg=BytesParser(policy=default).parsebytes(('Content-Type: '+ctype+'\r\nMIME-Version: 1.0\r\n\r\n').encode()+raw)
             with TemporaryDirectory() as td:
-                files=[]; trim=False; music=None; layout="portrait"
+                files=[]; trim=False; captions=False; music=None; layout="portrait"
                 for part in msg.iter_parts():
                     name=part.get_param('name',header='content-disposition')
                     if name=='clips' and part.get_filename():
                         dest=Path(td)/f'input-{len(files)}'; dest.write_bytes(part.get_payload(decode=True)); files.append(dest)
                     elif name=='silence': trim=part.get_content().strip()=='on'
+                    elif name=='captions': captions=part.get_content().strip()=='on'
                     elif name=='layout': layout=part.get_content().strip()
                     elif name=='musicfile' and part.get_filename():
                         music=Path(td)/'music'; music.write_bytes(part.get_payload(decode=True))
@@ -38,6 +39,7 @@ class Handler(BaseHTTPRequestHandler):
                 if layout not in ('portrait','landscape','square'): self.send_error(400,'Invalid format'); return
                 cmd.extend(['--format',layout])
                 if trim: cmd.append('--remove-silence')
+                if captions: cmd.append('--auto-subtitles')
                 if music: cmd.extend(['--music',str(music)])
                 subprocess.run(cmd,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=600)
                 data=out.read_bytes(); self.send_response(200); self.send_header('Content-Type','video/mp4'); self.send_header('Content-Disposition','attachment; filename="teacher-video.mp4"'); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
