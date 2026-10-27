@@ -23,16 +23,19 @@ class Handler(BaseHTTPRequestHandler):
             raw=self.rfile.read(n)
             msg=BytesParser(policy=default).parsebytes(('Content-Type: '+ctype+'\r\nMIME-Version: 1.0\r\n\r\n').encode()+raw)
             with TemporaryDirectory() as td:
-                files=[]; trim=False
+                files=[]; trim=False; music=None
                 for part in msg.iter_parts():
                     name=part.get_param('name',header='content-disposition')
                     if name=='clips' and part.get_filename():
                         dest=Path(td)/f'input-{len(files)}'; dest.write_bytes(part.get_payload(decode=True)); files.append(dest)
                     elif name=='silence': trim=part.get_content().strip()=='on'
+                    elif name=='musicfile' and part.get_filename():
+                        music=Path(td)/'music'; music.write_bytes(part.get_payload(decode=True))
                 if not files or len(files)>20: self.send_error(400, 'Choose 1 to 20 clips'); return
                 out=Path(td)/'output.mp4'
                 cmd=[sys.executable,str(ROOT/'engine/edit.py'),*[str(x) for x in files],'-o',str(out)]
                 if trim: cmd.append('--remove-silence')
+                if music: cmd.extend(['--music',str(music)])
                 subprocess.run(cmd,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=600)
                 data=out.read_bytes(); self.send_response(200); self.send_header('Content-Type','video/mp4'); self.send_header('Content-Disposition','attachment; filename="teacher-video.mp4"'); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
         except (ValueError, subprocess.SubprocessError, OSError): self.send_error(500,'Could not process video')
