@@ -1,7 +1,7 @@
 // Local test mode only. Automatic subtitles are not implemented.
 const section=document.querySelectorAll('section')[2];
 const localNote=document.createElement('p');
-localNote.textContent='โหมดทดสอบในเครื่อง: รวมคลิปและตัดช่วงเงียบได้ (สูงสุด 20 คลิป รวมไม่เกิน 200 MB) ยังไม่รองรับซับ เลือกไฟล์เพลงพื้นหลังได้';
+localNote.textContent='โหมดทดสอบในเครื่อง: รวมคลิปและตัดช่วงเงียบได้ (สูงสุด 20 คลิป รวมเพลงไม่เกิน 190 MB) ยังไม่รองรับซับ เลือกไฟล์เพลงพื้นหลังได้';
 section.prepend(localNote);
 section.querySelectorAll('fieldset').forEach(field=>field.disabled=true);
 const layout=document.createElement('select');layout.setAttribute('aria-label','รูปแบบวิดีโอ');[['portrait','แนวตั้ง 9:16'],['landscape','แนวนอน 16:9'],['square','สี่เหลี่ยม 1:1']].forEach(([value,title])=>layout.add(new Option(title,value)));section.append(layout);
