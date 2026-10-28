@@ -1,15 +1,17 @@
+import { parseSrt, toSrt, toVtt } from './captions.js';
 import { resultStore } from './saved-result.js';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 
 const $ = s => document.querySelector(s);
 const ffmpeg = new FFmpeg();
-let clips = [], outputUrl = null, working = false, logs = [];
+let clips = [], outputUrl = null, working = false, logs = [], captionBase=null, trackUrl=null;
 ffmpeg.on('log', ({message}) => logs.push(message));
 const saved = resultStore();
 const savedNote=document.createElement('p');
 $('#result').after(savedNote);
-function displayResult(blob) {
+function displayResult(blob, keepBase=false) {
+  if(!keepBase) captionBase=blob;
   if(outputUrl) URL.revokeObjectURL(outputUrl);
   outputUrl=URL.createObjectURL(blob);
   const video=document.createElement('video');video.controls=true;video.src=outputUrl;
@@ -91,3 +93,38 @@ $('#run').addEventListener('click',async()=>{
   } catch(e){console.error(e);$('#status').textContent=`ยังประมวลผลไม่สำเร็จ: ${e instanceof Error ? e.message : String(e || 'ไม่ทราบสาเหตุ')}`;}
   finally {for(const name of cleanup)await safeDelete(name);working=false;$('#run').disabled=false;$('#files').disabled=false;draw();}
 });
+
+$('#srt-file').addEventListener('change',async e=>{
+  try {const f=e.target.files[0];if(!f)return;if(f.size>200000)throw Error('ไฟล์ซับใหญ่เกินไป');$('#srt-editor').value=toSrt(parseSrt(await f.text()));$('#caption-status').textContent='นำเข้าซับแล้ว ตรวจข้อความและเวลาได้';}
+  catch(e){$('#caption-status').textContent=String(e.message||e);}
+  finally {e.target.value='';}
+});
+function captionCues(){
+  if(!captionBase)throw Error('กรุณารวมคลิปให้เสร็จก่อน หรือเปิดวิดีโอที่บันทึกไว้');
+  const cues=parseSrt($('#srt-editor').value),video=$('#result video');
+  if(!Number.isFinite(video?.duration))throw Error('รอให้วิดีโอโหลด แล้วกดอีกครั้ง');
+  if(cues.some(c=>c.end>video.duration+0.1))throw Error('เวลาซับเกินความยาววิดีโอ กรุณาตรวจเวลา');
+  return cues;
+}
+$('#preview-captions').onclick=()=>{
+  try{const cues=captionCues(),video=$('#result video');video.querySelectorAll('track').forEach(t=>t.remove());if(trackUrl)URL.revokeObjectURL(trackUrl);trackUrl=URL.createObjectURL(new Blob([toVtt(cues)],{type:'text/vtt'}));const track=document.createElement('track');track.kind='subtitles';track.label='ภาษาไทย';track.srclang='th';track.src=trackUrl;track.default=true;video.append(track);track.addEventListener('load',()=>{track.track.mode='showing'});$('#caption-status').textContent='เพิ่มซับตัวอย่างแล้ว กดเล่นวิดีโอด้านบน รูปแบบในไฟล์ส่งออกอาจต่างจากเครื่องเล่น';video.scrollIntoView({behavior:'smooth',block:'center'});}
+  catch(e){$('#caption-status').textContent=String(e.message||e);}
+};
+$('#burn-captions').onclick=async()=>{
+  if(working){$('#caption-status').textContent='รอประมวลผลปัจจุบันให้เสร็จก่อน';return;}
+  let cues;try{cues=captionCues();}catch(e){$('#caption-status').textContent=String(e.message||e);return;}
+  working=true;$('#run').disabled=true;$('#burn-captions').disabled=true;
+  try{
+    $('#caption-status').textContent='กำลังใส่ซับไทยสีขาว กรุณาเปิดหน้านี้ไว้';
+    if(!ffmpeg.loaded)await ffmpeg.load({coreURL:new URL('/ffmpeg/ffmpeg-core.js',location.href).href,wasmURL:new URL('/ffmpeg/ffmpeg-core.wasm',location.href).href});
+    const response=await fetch('/fonts/NotoSansThai.ttf');if(!response.ok)throw Error('โหลดฟอนต์ภาษาไทยไม่สำเร็จ');
+    await ffmpeg.writeFile('thai.ttf',new Uint8Array(await response.arrayBuffer()));
+    await ffmpeg.writeFile('captions.srt',new TextEncoder().encode(toSrt(cues)));
+    await ffmpeg.writeFile('caption-input.mp4',await fetchFile(captionBase));
+    await exec(['-y','-i','caption-input.mp4','-vf',"subtitles=captions.srt:fontsdir=.:force_style='FontName=Noto Sans Thai,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1.5,Shadow=0,MarginV=24'",'-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','copy','-movflags','+faststart','caption-output.mp4']);
+    const data=await ffmpeg.readFile('caption-output.mp4'),blob=new Blob([data],{type:'video/mp4'});displayResult(blob,true);
+    try{await saved.save(blob);savedNote.textContent='เก็บวิดีโอพร้อมซับเป็นผลลัพธ์ล่าสุดแล้ว กรุณาดาวน์โหลดสำรอง';}catch{savedNote.textContent='เก็บผลลัพธ์ไม่สำเร็จ กรุณาดาวน์โหลดก่อนปิดหน้า';}
+    $('#caption-status').textContent='สร้างวิดีโอพร้อมซับแล้ว ตรวจและดาวน์โหลดจากวิดีโอด้านบน';
+  }catch(e){$('#caption-status').textContent='ใส่ซับไม่สำเร็จ: '+String(e.message||e);}
+  finally{for(const f of ['thai.ttf','captions.srt','caption-input.mp4','caption-output.mp4'])await safeDelete(f);working=false;$('#run').disabled=false;$('#burn-captions').disabled=false;}
+};

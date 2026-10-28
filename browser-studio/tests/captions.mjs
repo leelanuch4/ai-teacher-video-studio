@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {parseSrt,toSrt,toVtt} from '../src/captions.js';
+const cues=parseSrt('1\r\n00:00:00,000 --> 00:00:01,500\r\nสวัสดีคุณครู\r\n');
+assert.equal(cues[0].text,'สวัสดีคุณครู');assert.equal(cues[0].end,1.5);
+assert.deepEqual(parseSrt(toSrt(cues)),cues);assert.match(toVtt(cues),/00:00:01.500/);
+assert.throws(()=>parseSrt('1\n00:00:02,000 --> 00:00:01,000\nไทย'));
+assert.throws(()=>parseSrt('1\n00:00:00,000 --> 00:00:02,000\nหนึ่ง\n\n2\n00:00:01,000 --> 00:00:03,000\nสอง'));
+assert.throws(()=>parseSrt('1\n00:61:00,000 --> 00:62:00,000\nไทย'));
+assert.equal(parseSrt('1\n00:00:00,000 --> 00:00:01,000\n{\\pos(1,2)}<b>สวัสดี</b>')[0].text,'สวัสดี');
+console.log('Thai SRT parsing, timing validation, sanitization and VTT export: PASS');

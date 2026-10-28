@@ -22,5 +22,15 @@ const make=require('@ffmpeg/core');
   const info=JSON.parse(execFileSync('ffprobe',['-v','error','-show_entries','format=duration:stream=codec_type','-of','json',out],{encoding:'utf8'}));
   const duration=Number(info.format.duration);if(duration<2.1||duration>2.8||!info.streams.some(s=>s.codec_type==='video')||!info.streams.some(s=>s.codec_type==='audio'))throw Error('Unexpected output duration or streams');
   console.log(`WebAssembly merge passed: ${duration}s with video and audio`);
+  m.FS.writeFile('thai.ttf',fs.readFileSync(path.join(__dirname,'../public/fonts/NotoSansThai.ttf')));
+  m.FS.writeFile('captions.srt','1\n00:00:00,000 --> 00:00:01,000\nสวัสดีคุณครู\n');
+  run('-i','assembled.mp4','-vf',"subtitles=captions.srt:fontsdir=.:force_style='FontName=Noto Sans Thai,FontSize=20,PrimaryColour=&H00FFFFFF,Outline=1.5'",'-c:v','libx264','-preset','ultrafast','-c:a','copy','captioned.mp4');
+  if(!logs.some(x=>x.includes('NotoSansThai') || x.includes('Noto Sans Thai')))throw Error('Thai font not selected');
+  if(logs.some(x=>x.includes('Glyph')&&x.includes('not found')))throw Error('Missing Thai glyph');
+  const sub=path.join(dir,'sub.mp4');fs.writeFileSync(sub,m.FS.readFile('captioned.mp4'));
+  const frame=(file)=>execFileSync('ffmpeg',['-v','error','-ss','0.5','-i',file,'-frames:v','1','-f','rawvideo','-pix_fmt','rgb24','-']);
+  if(frame(out).equals(frame(sub)))throw Error('No visible subtitle pixels');
+  console.log('WebAssembly Thai font and burned subtitle pixels: PASS');
+
  } finally {fs.rmSync(dir,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1});
