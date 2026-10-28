@@ -65,6 +65,6 @@ $('#run').addEventListener('click',async()=>{
     if(music){$('#status').textContent='กำลังใส่เพลงพื้นหลัง';await ffmpeg.writeFile('music',await fetchFile(music));await exec(['-y','-i','assembled.mp4','-stream_loop','-1','-i','music','-filter_complex','[1:a]volume=0.12[m];[0:a][m]amix=inputs=2:duration=first:normalize=0[a]','-map','0:v:0','-map','[a]','-c:v','copy','-c:a','aac','-movflags','+faststart','final.mp4']);output='final.mp4';}
     const data=await ffmpeg.readFile(output);outputUrl=URL.createObjectURL(new Blob([data],{type:'video/mp4'}));
     const video=document.createElement('video');video.controls=true;video.src=outputUrl;const link=document.createElement('a');link.href=outputUrl;link.download='teacher-video.mp4';link.textContent='ดาวน์โหลดวิดีโอ';$('#result').append(video,link);$('#status').textContent='ประมวลผลเสร็จแล้ว กรุณาตรวจวิดีโอก่อนดาวน์โหลด';
-  } catch(e){console.error(e);$('#status').textContent=`ยังประมวลผลไม่สำเร็จ: ${e.message||'ลองคลิปที่สั้นลงหรือใช้อุปกรณ์อื่น'}`;}
+  } catch(e){console.error(e);$('#status').textContent=`ยังประมวลผลไม่สำเร็จ: ${e instanceof Error ? e.message : String(e || 'ไม่ทราบสาเหตุ')}`;}
   finally {for(const name of cleanup)await safeDelete(name);working=false;$('#run').disabled=false;$('#files').disabled=false;draw();}
 });
