@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { indexedDB } from 'fake-indexeddb';
+import { resultStore } from '../src/saved-result.js';
+const first=resultStore(indexedDB);
+assert.equal(await first.load(),undefined);
+await first.save(new Blob(['first video'],{type:'video/mp4'}));
+const reopened=resultStore(indexedDB);
+assert.equal(await (await reopened.load()).blob.text(),'first video');
+await reopened.save(new Blob(['second video'],{type:'video/mp4'}));
+assert.equal(await (await first.load()).blob.text(),'second video');
+await reopened.clear();assert.equal(await first.load(),undefined);
+await assert.rejects(resultStore(null).load());
+console.log('Saved video survives reopening, replacement and deletion; unavailable storage handled: PASS');

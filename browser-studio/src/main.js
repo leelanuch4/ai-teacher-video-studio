@@ -1,3 +1,4 @@
+import { resultStore } from './saved-result.js';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 
@@ -5,6 +6,23 @@ const $ = s => document.querySelector(s);
 const ffmpeg = new FFmpeg();
 let clips = [], outputUrl = null, working = false, logs = [];
 ffmpeg.on('log', ({message}) => logs.push(message));
+const saved = resultStore();
+const savedNote=document.createElement('p');
+$('#result').after(savedNote);
+function displayResult(blob) {
+  if(outputUrl) URL.revokeObjectURL(outputUrl);
+  outputUrl=URL.createObjectURL(blob);
+  const video=document.createElement('video');video.controls=true;video.src=outputUrl;
+  const link=document.createElement('a');link.href=outputUrl;link.download='teacher-video.mp4';link.textContent='ดาวน์โหลดวิดีโอ';
+  $('#result').replaceChildren(video,link);
+}
+const restore = (async()=>{
+  try {
+    const previous=await saved.load();
+    if(previous?.blob){displayResult(previous.blob);savedNote.textContent='เปิดผลลัพธ์ล่าสุดที่เก็บไว้ในเบราว์เซอร์นี้แล้ว กรุณาดาวน์โหลดเก็บไว้ด้วย';}
+  } catch {savedNote.textContent='เบราว์เซอร์นี้ยังเปิดพื้นที่เก็บงานไม่ได้ กรุณาดาวน์โหลดวิดีโอทันทีเมื่อเสร็จ';}
+})();
+
 function draw() {
   const list = $('#list'); list.replaceChildren();
   clips.forEach((c,i) => {
@@ -32,6 +50,7 @@ function durationFromLogs(messages){for(const line of messages){const m=line.mat
 async function safeDelete(name){try{await ffmpeg.deleteFile(name)}catch{}}
 $('#run').addEventListener('click',async()=>{
   if(working)return;
+  await restore;
   const music=$('#music').files[0];
   if(!clips.length){$('#status').textContent='กรุณาเลือกคลิปก่อน';return;}
   if(clips.length>5 || clips.reduce((n,c)=>n+c.file.size,0)+(music?.size||0)>100_000_000){const count=clips.length, mb=(clips.reduce((n,c)=>n+c.file.size,0)+(music?.size||0))/1_000_000; $('#status').textContent=`เลือกไว้ ${count} คลิป ขนาดรวม ${mb.toFixed(1)} MB — ${count>5?'กรุณาลดเหลือไม่เกิน 5 คลิป ':''}${mb>100?'กรุณาลดขนาดรวมให้ไม่เกิน 100 MB':''} แล้วกดรวมคลิปอีกครั้ง`;return;}
@@ -63,8 +82,12 @@ $('#run').addEventListener('click',async()=>{
     await ffmpeg.writeFile('list.txt',new TextEncoder().encode(manifest));await exec(['-y','-f','concat','-safe','0','-i','list.txt','-c','copy','assembled.mp4']);
     let output='assembled.mp4';
     if(music){$('#status').textContent='กำลังใส่เพลงพื้นหลัง';await ffmpeg.writeFile('music',await fetchFile(music));await exec(['-y','-i','assembled.mp4','-stream_loop','-1','-i','music','-filter_complex','[1:a]volume=0.12[m];[0:a][m]amix=inputs=2:duration=first:normalize=0[a]','-map','0:v:0','-map','[a]','-c:v','copy','-c:a','aac','-movflags','+faststart','final.mp4']);output='final.mp4';}
-    const data=await ffmpeg.readFile(output);outputUrl=URL.createObjectURL(new Blob([data],{type:'video/mp4'}));
-    const video=document.createElement('video');video.controls=true;video.src=outputUrl;const link=document.createElement('a');link.href=outputUrl;link.download='teacher-video.mp4';link.textContent='ดาวน์โหลดวิดีโอ';$('#result').append(video,link);$('#status').textContent='ประมวลผลเสร็จแล้ว กรุณาตรวจวิดีโอก่อนดาวน์โหลด';
+    const data=await ffmpeg.readFile(output), blob=new Blob([data],{type:'video/mp4'});
+    displayResult(blob);
+    $('#status').textContent='ประมวลผลเสร็จแล้ว กรุณาตรวจวิดีโอก่อนดาวน์โหลด';
+    try {await saved.save(blob);savedNote.textContent='เก็บผลลัพธ์ล่าสุดในเบราว์เซอร์นี้แล้ว งานใหม่จะทับผลลัพธ์นี้ ยังควรดาวน์โหลดสำรอง เพราะระบบหรือการล้างข้อมูลอาจลบไฟล์ได้';}
+    catch {savedNote.textContent='บันทึกในเบราว์เซอร์ไม่สำเร็จ กรุณาดาวน์โหลดก่อนปิดหรือรีเฟรชหน้า';}
+
   } catch(e){console.error(e);$('#status').textContent=`ยังประมวลผลไม่สำเร็จ: ${e instanceof Error ? e.message : String(e || 'ไม่ทราบสาเหตุ')}`;}
   finally {for(const name of cleanup)await safeDelete(name);working=false;$('#run').disabled=false;$('#files').disabled=false;draw();}
 });

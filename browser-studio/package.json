@@ -10,5 +10,8 @@
     "dev": "node scripts/prepare-core.cjs && vite",
     "build": "node scripts/prepare-core.cjs && vite build",
     "test": "node tests/wasm-smoke.cjs"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.6"
   }
 }
