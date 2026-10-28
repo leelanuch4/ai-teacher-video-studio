@@ -1,3 +1,4 @@
+import { transcriptCues } from './transcription.js';
 import { parseSrt, toSrt, toVtt } from './captions.js';
 import { resultStore } from './saved-result.js';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -127,4 +128,50 @@ $('#burn-captions').onclick=async()=>{
     $('#caption-status').textContent='สร้างวิดีโอพร้อมซับแล้ว ตรวจและดาวน์โหลดจากวิดีโอด้านบน';
   }catch(e){$('#caption-status').textContent='ใส่ซับไม่สำเร็จ: '+String(e.message||e);}
   finally{for(const f of ['thai.ttf','captions.srt','caption-input.mp4','caption-output.mp4'])await safeDelete(f);working=false;$('#run').disabled=false;$('#burn-captions').disabled=false;}
+};
+
+let asrWorker=null;
+let stopTranscription=null;
+$('#cancel-transcribe').onclick=()=>stopTranscription?.();
+$('#auto-captions').onclick=async()=>{
+  if(working){$('#caption-status').textContent='รอประมวลผลปัจจุบันให้เสร็จก่อน';return;}
+  await restore;
+  const video=$('#result video');
+  if(!captionBase||!Number.isFinite(video?.duration)){$('#caption-status').textContent='กรุณารวมคลิปให้เสร็จและรอวิดีโอโหลดก่อน';return;}
+  if(video.duration>120){$('#caption-status').textContent='โหมดถอดเสียงในอุปกรณ์รุ่นทดลองรองรับคลิปไม่เกิน 2 นาที';return;}
+  working=true;$('#run').disabled=true;$('#burn-captions').disabled=true;$('#auto-captions').disabled=true;
+  try{
+    $('#caption-status').textContent='กำลังเตรียมเสียงจากวิดีโอ';
+    if(!ffmpeg.loaded)await ffmpeg.load({coreURL:new URL('/ffmpeg/ffmpeg-core.js',location.href).href,wasmURL:new URL('/ffmpeg/ffmpeg-core.wasm',location.href).href});
+    await ffmpeg.writeFile('asr-input.mp4',await fetchFile(captionBase));
+    await exec(['-y','-i','asr-input.mp4','-vn','-ac','1','-ar','16000','-f','f32le','asr-audio.pcm']);
+    const bytes=await ffmpeg.readFile('asr-audio.pcm');
+    const audio=new Float32Array(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength));
+    // Release video engine memory before starting inference on phones.
+    ffmpeg.terminate();
+    let energy=0;for(let i=0;i<audio.length;i++)energy+=audio[i]*audio[i];
+    if(!audio.length||Math.sqrt(energy/audio.length)<0.0001)throw Error('เสียงเงียบเกินไป ยังสร้างซับไม่ได้');
+    const duration=audio.length/16000;
+    $('#cancel-transcribe').hidden=false;
+    const result=await new Promise((resolve,reject)=>{
+      asrWorker=new Worker(new URL('./transcribe.worker.js',import.meta.url),{type:'module'});
+      stopTranscription=()=>reject(Error('ยกเลิกการถอดเสียงแล้ว วิดีโอยังอยู่'));
+      asrWorker.onerror=e=>reject(Error(e.message||'อุปกรณ์เปิดเครื่องมือถอดเสียงไม่ได้'));
+      asrWorker.onmessage=({data})=>{
+        if(data.type==='done')resolve(data.result);
+        else if(data.type==='error')reject(Error(data.message));
+        else if(data.type==='status')$('#caption-status').textContent=data.text;
+        else if(data.type==='progress')$('#caption-status').textContent=`กำลังโหลดโมเดล ${Math.round(data.progress||0)}% (${data.file||''})`;
+      };
+      asrWorker.postMessage({audio:audio.buffer},[audio.buffer]);
+    });
+    const cues=transcriptCues(result,duration);
+    $('#srt-editor').value=toSrt(cues);
+    $('#caption-status').textContent='สร้างร่างซับจากเสียงแล้ว กรุณาตรวจแก้คำและเวลาก่อนกดสร้างวิดีโอพร้อมซับ';
+  }catch(e){$('#caption-status').textContent='ถอดเสียงยังไม่สำเร็จ: '+String(e.message||e);}
+  finally{
+    asrWorker?.terminate();asrWorker=null;stopTranscription=null;$('#cancel-transcribe').hidden=true;
+    if(ffmpeg.loaded){await safeDelete('asr-input.mp4');await safeDelete('asr-audio.pcm');}
+    working=false;$('#run').disabled=false;$('#burn-captions').disabled=false;$('#auto-captions').disabled=false;
+  }
 };

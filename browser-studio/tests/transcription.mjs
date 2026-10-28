@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {transcriptCues} from '../src/transcription.js';
+import {parseSrt,toSrt} from '../src/captions.js';
+const cues=transcriptCues({chunks:[{text:' สวัสดีคุณครู',timestamp:[0,1.5]},{text:'ครับ',timestamp:[1.4,null]}]},3);
+assert.deepEqual(cues,[{text:'สวัสดีคุณครู',start:0,end:1.5},{text:'ครับ',start:1.5,end:3}]);
+assert.deepEqual(parseSrt(toSrt(cues)),cues);
+assert.throws(()=>transcriptCues({text:'No timestamps'},3));
+assert.throws(()=>transcriptCues({chunks:[{text:'bad',timestamp:[null,null]}]},3));
+assert.throws(()=>transcriptCues({chunks:[]},0));
+console.log('Automatic transcript timing conversion and missing-timestamp handling: PASS');
