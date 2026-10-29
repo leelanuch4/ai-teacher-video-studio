@@ -15,7 +15,7 @@ function displayResult(blob, keepBase=false) {
   if(!keepBase) captionBase=blob;
   if(outputUrl) URL.revokeObjectURL(outputUrl);
   outputUrl=URL.createObjectURL(blob);
-  const video=document.createElement('video');video.controls=true;video.src=outputUrl;
+  const video=document.createElement('video');video.controls=true;video.preload='metadata';video.playsInline=true;video.src=outputUrl;
   const link=document.createElement('a');link.href=outputUrl;link.download='teacher-video.mp4';link.textContent='ดาวน์โหลดวิดีโอ';
   $('#result').replaceChildren(video,link);
 }
@@ -26,11 +26,18 @@ const restore = (async()=>{
   } catch {savedNote.textContent='เบราว์เซอร์นี้ยังเปิดพื้นที่เก็บงานไม่ได้ กรุณาดาวน์โหลดวิดีโอทันทีเมื่อเสร็จ';}
 })();
 
+function clipSummary(){
+  const size=clips.reduce((n,c)=>n+c.file.size,0)/1e6;
+  const known=clips.filter(c=>Number.isFinite(c.duration));
+  const seconds=known.reduce((n,c)=>n+c.duration,0);
+  $('#clip-summary').textContent=`เลือก ${clips.length} คลิป · ${size.toFixed(1)} MB · ${known.length===clips.length?`ความยาวรวม ${Math.floor(seconds/60)} นาที ${Math.round(seconds%60)} วินาที`:'กำลังอ่านความยาวคลิป'} (ก่อนตัดช่วงเงียบ) — รวมคลิปสูงสุด 5 ไฟล์/100 MB; ถอดซับเต็มคลิปได้ไม่เกิน 2 นาทีในรุ่นทดลอง`;
+}
 function draw() {
+  clipSummary();
   const list = $('#list'); list.replaceChildren();
   clips.forEach((c,i) => {
     const li=document.createElement('li'), name=document.createElement('strong'); name.textContent=`${i+1}. ${c.file.name}`; li.append(name);
-    const video=document.createElement('video'); video.controls=true; video.preload='metadata'; video.src=c.url; li.append(video);
+    const video=document.createElement('video'); video.controls=true; video.preload='metadata'; video.src=c.url;video.onloadedmetadata=()=>{c.duration=video.duration;clipSummary()};li.append(video);
     for(const [text,disabled,fn] of [['ขึ้น',i===0,()=>{[clips[i-1],clips[i]]=[clips[i],clips[i-1]]}],['ลง',i===clips.length-1,()=>{[clips[i+1],clips[i]]=[clips[i],clips[i+1]]}],['ลบ',false,()=>{URL.revokeObjectURL(c.url);clips.splice(i,1)}]]) {
       const b=document.createElement('button');b.type='button';b.textContent=text;b.disabled=disabled||working;b.onclick=()=>{fn();draw()};li.append(b);
     } list.append(li);
@@ -130,6 +137,16 @@ $('#burn-captions').onclick=async()=>{
   finally{for(const f of ['thai.ttf','captions.srt','caption-input.mp4','caption-output.mp4'])await safeDelete(f);working=false;$('#run').disabled=false;$('#burn-captions').disabled=false;}
 };
 
+async function mediaReady(video){
+  if(Number.isFinite(video?.duration))return;
+  if(!video)throw Error('ยังไม่มีวิดีโอที่ประมวลผลแล้ว');
+  await new Promise((resolve,reject)=>{
+    const cleanup=()=>{clearTimeout(timer);video.removeEventListener('loadedmetadata',ok);video.removeEventListener('error',bad)};
+    const ok=()=>{cleanup();resolve()};const bad=()=>{cleanup();reject(Error('อ่านวิดีโอที่บันทึกไว้ไม่ได้'))};
+    const timer=setTimeout(()=>{cleanup();reject(Error('ยังอ่านความยาววิดีโอไม่ได้ กรุณากดเล่นวิดีโอหนึ่งครั้ง'))},15000);
+    video.addEventListener('loadedmetadata',ok,{once:true});video.addEventListener('error',bad,{once:true});
+  });
+}
 let asrWorker=null;
 let stopTranscription=null;
 $('#cancel-transcribe').onclick=()=>stopTranscription?.();
@@ -137,14 +154,17 @@ $('#auto-captions').onclick=async()=>{
   if(working){$('#caption-status').textContent='รอประมวลผลปัจจุบันให้เสร็จก่อน';return;}
   await restore;
   const video=$('#result video');
-  if(!captionBase||!Number.isFinite(video?.duration)){$('#caption-status').textContent='กรุณารวมคลิปให้เสร็จและรอวิดีโอโหลดก่อน';return;}
-  if(video.duration>120){$('#caption-status').textContent='โหมดถอดเสียงในอุปกรณ์รุ่นทดลองรองรับคลิปไม่เกิน 2 นาที';return;}
+  if(!captionBase){$('#caption-status').textContent='กรุณารวมคลิปให้เสร็จก่อน';return;}
+  try{await mediaReady(video)}catch(e){$('#caption-status').textContent=e.message;return;}
+  const sample=$('#asr-range').value==='sample';
+  if(video.duration>120&&!sample){$('#caption-status').textContent='โหมดถอดเสียงในอุปกรณ์รุ่นทดลองรองรับคลิปไม่เกิน 2 นาที';return;}
   working=true;$('#run').disabled=true;$('#burn-captions').disabled=true;$('#auto-captions').disabled=true;
+  let stage='A1 เตรียมเสียง';$('#caption-diagnostic').textContent='';
   try{
     $('#caption-status').textContent='กำลังเตรียมเสียงจากวิดีโอ';
     if(!ffmpeg.loaded)await ffmpeg.load({coreURL:new URL('/ffmpeg/ffmpeg-core.js',location.href).href,wasmURL:new URL('/ffmpeg/ffmpeg-core.wasm',location.href).href});
     await ffmpeg.writeFile('asr-input.mp4',await fetchFile(captionBase));
-    await exec(['-y','-i','asr-input.mp4','-vn','-ac','1','-ar','16000','-f','f32le','asr-audio.pcm']);
+    await exec(['-y','-i','asr-input.mp4',...(sample?['-t','20']:[]),'-vn','-ac','1','-ar','16000','-f','f32le','asr-audio.pcm']);
     const bytes=await ffmpeg.readFile('asr-audio.pcm');
     const audio=new Float32Array(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength));
     // Release video engine memory before starting inference on phones.
@@ -153,6 +173,7 @@ $('#auto-captions').onclick=async()=>{
     if(!audio.length||Math.sqrt(energy/audio.length)<0.0001)throw Error('เสียงเงียบเกินไป ยังสร้างซับไม่ได้');
     const duration=audio.length/16000;
     $('#cancel-transcribe').hidden=false;
+    stage='A2 เปิดตัวประมวลผล AI';
     const result=await new Promise((resolve,reject)=>{
       asrWorker=new Worker(new URL('./transcribe.worker.js',import.meta.url),{type:'module'});
       stopTranscription=()=>reject(Error('ยกเลิกการถอดเสียงแล้ว วิดีโอยังอยู่'));
@@ -160,15 +181,16 @@ $('#auto-captions').onclick=async()=>{
       asrWorker.onmessage=({data})=>{
         if(data.type==='done')resolve(data.result);
         else if(data.type==='error')reject(Error(data.message));
-        else if(data.type==='status')$('#caption-status').textContent=data.text;
-        else if(data.type==='progress')$('#caption-status').textContent=`กำลังโหลดโมเดล ${Math.round(data.progress||0)}% (${data.file||''})`;
+        else if(data.type==='status'){stage=data.stage||stage;$('#caption-status').textContent=data.text;}
+        else if(data.type==='progress'){stage='A3 โหลดโมเดล';$('#caption-status').textContent=`กำลังโหลดโมเดล ${Math.round(data.progress||0)}% (${data.file||''})`;}
       };
       asrWorker.postMessage({audio:audio.buffer},[audio.buffer]);
     });
+    stage='A5 จัดข้อความและเวลา';
     const cues=transcriptCues(result,duration);
     $('#srt-editor').value=toSrt(cues);
-    $('#caption-status').textContent='สร้างร่างซับจากเสียงแล้ว กรุณาตรวจแก้คำและเวลาก่อนกดสร้างวิดีโอพร้อมซับ';
-  }catch(e){$('#caption-status').textContent='ถอดเสียงยังไม่สำเร็จ: '+String(e.message||e);}
+    $('#caption-status').textContent=(sample?'สร้างร่างซับเฉพาะ 20 วินาทีแรกแล้ว ไม่ใช่ซับเต็มคลิป — ':'สร้างร่างซับเต็มคลิปแล้ว — ')+'ตรวจแก้คำและเวลาก่อนสร้างวิดีโอพร้อมซับ';
+  }catch(e){$('#caption-status').textContent='ถอดเสียงยังไม่สำเร็จในขั้น '+stage;$('#caption-diagnostic').textContent='รายละเอียดสำหรับแจ้งมะลิ: '+String(e.message||e);}
   finally{
     asrWorker?.terminate();asrWorker=null;stopTranscription=null;$('#cancel-transcribe').hidden=true;
     if(ffmpeg.loaded){await safeDelete('asr-input.mp4');await safeDelete('asr-audio.pcm');}
