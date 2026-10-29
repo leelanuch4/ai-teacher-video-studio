@@ -1,3 +1,4 @@
+import { inputBudget } from './input-budget.js';
 import { transcriptCues } from './transcription.js';
 import { parseSrt, toSrt, toVtt } from './captions.js';
 import { resultStore } from './saved-result.js';
@@ -27,11 +28,18 @@ const restore = (async()=>{
 })();
 
 function clipSummary(){
-  const size=clips.reduce((n,c)=>n+c.file.size,0)/1e6;
+  const budget=inputBudget(clips.map(c=>c.file),$('#music').files[0]?.size||0);
   const known=clips.filter(c=>Number.isFinite(c.duration));
   const seconds=known.reduce((n,c)=>n+c.duration,0);
-  $('#clip-summary').textContent=`เลือก ${clips.length} คลิป · ${size.toFixed(1)} MB · ${known.length===clips.length?`ความยาวรวม ${Math.floor(seconds/60)} นาที ${Math.round(seconds%60)} วินาที`:'กำลังอ่านความยาวคลิป'} (ก่อนตัดช่วงเงียบ) — รวมคลิปสูงสุด 5 ไฟล์/100 MB; ถอดซับเต็มคลิปได้ไม่เกิน 2 นาทีในรุ่นทดลอง`;
+  const minutes=Math.floor(seconds/60),remaining=Math.floor(seconds%60);
+  let state=!clips.length?'เลือกคลิปได้เลย เว็บจะตรวจขนาดให้เอง':budget.allowed?(budget.large?'เริ่มทดลองได้ — ไฟล์ค่อนข้างใหญ่ อาจใช้เวลานานหรือหน่วยความจำไม่พอ':'เริ่มทดลองรวมคลิปได้'):'ต้องลดไฟล์ก่อนเริ่ม';
+  if(clips.length>5)state+=' · เลือกได้ไม่เกิน 5 คลิป';
+  if(budget.remaining)state+=` · ลบหรือลดไฟล์รวมอย่างน้อย ${(budget.remaining/1e6).toFixed(1)} MB`;
+  $('#clip-summary').textContent=`${state} | เลือก ${clips.length} คลิป · ${known.length===clips.length?`ความยาวรวม ${minutes} นาที ${remaining} วินาที`:'กำลังอ่านความยาว'} (ก่อนตัด) · รวมเพลง ${budget.mb.toFixed(1)} จาก 200 MB · ซับเต็มคลิปทดลองได้ไม่เกิน 2 นาที`;
+  $('#clip-summary').style.padding='12px';$('#clip-summary').style.background=budget.allowed?'#edf6e8':'#fff2d7';$('#clip-summary').style.borderRadius='10px';
 }
+$('#music').addEventListener('change',clipSummary);
+
 function draw() {
   clipSummary();
   const list = $('#list'); list.replaceChildren();
@@ -63,7 +71,7 @@ $('#run').addEventListener('click',async()=>{
   await restore;
   const music=$('#music').files[0];
   if(!clips.length){$('#status').textContent='กรุณาเลือกคลิปก่อน';return;}
-  if(clips.length>5 || clips.reduce((n,c)=>n+c.file.size,0)+(music?.size||0)>100_000_000){const count=clips.length, mb=(clips.reduce((n,c)=>n+c.file.size,0)+(music?.size||0))/1_000_000; $('#status').textContent=`เลือกไว้ ${count} คลิป ขนาดรวม ${mb.toFixed(1)} MB — ${count>5?'กรุณาลดเหลือไม่เกิน 5 คลิป ':''}${mb>100?'กรุณาลดขนาดรวมให้ไม่เกิน 100 MB':''} แล้วกดรวมคลิปอีกครั้ง`;return;}
+  if(!inputBudget(clips.map(c=>c.file),music?.size||0).allowed){clipSummary();$('#status').textContent='ยังเริ่มไม่ได้ กรุณาดูคำแนะนำในช่องตรวจไฟล์ด้านบน';$('#clip-summary').scrollIntoView({behavior:'smooth',block:'center'});return;}
   working=true; $('#run').disabled=true;$('#files').disabled=true;draw();$('#result').replaceChildren();if(outputUrl){URL.revokeObjectURL(outputUrl);outputUrl=null;}
   const cleanup=[];
   try{

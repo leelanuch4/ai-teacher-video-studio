@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {inputBudget} from '../src/input-budget.js';
+assert.equal(inputBudget([{size:124300000}]).allowed,true);
+assert.equal(inputBudget([{size:124300000}]).large,true);
+assert.equal(inputBudget([{size:200000000}]).allowed,true);
+assert.equal(inputBudget([{size:200000001}]).allowed,false);
+assert.equal(inputBudget([{size:199000000}],2000000).remaining,1000000);
+assert.equal(inputBudget(Array(6).fill({size:1})).allowed,false);
+assert.equal(inputBudget([]).allowed,false);
+console.log('Input budget: 124.3MB, 200MB boundary, music, count and empty input PASS');
